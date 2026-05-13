@@ -12,11 +12,7 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.widget.GridLayout;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
-
-import java.util.HashMap;
-import java.util.Map;
 
 public final class MainActivity extends Activity {
     private static final String TAG = "SourceSwitcher";
@@ -26,10 +22,8 @@ public final class MainActivity extends Activity {
     private static final int TEXT_PRIMARY = Color.rgb(242, 244, 248);
     private static final int TEXT_SECONDARY = Color.rgb(156, 163, 175);
     private static final int ONLINE = Color.rgb(34, 197, 94);
-    private static final int INDICATOR = Color.rgb(105, 111, 120);
 
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private final Map<String, SourceRow> rows = new HashMap<>();
     private TextView statusView;
     private SourceItem currentSource;
 
@@ -95,23 +89,16 @@ public final class MainActivity extends Activity {
         sourceHeaderParams.topMargin = dp(22);
         root.addView(sourceHeader, sourceHeaderParams);
 
-        ScrollView scrollView = new ScrollView(this);
-        scrollView.setFillViewport(false);
-        scrollView.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        list.setPadding(0, dp(8), 0, dp(8));
-        scrollView.addView(list);
-
+        GridLayout sourceGrid = new GridLayout(this);
+        sourceGrid.setColumnCount(4);
         for (SourceItem item : SourceCatalog.ALL) {
-            SourceRow row = new SourceRow(item);
-            rows.put(item.key, row);
-            list.addView(row.container);
+            if (shouldShowSourceCard(item)) {
+                sourceGrid.addView(createSourceCard(item));
+            }
         }
-
-        LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(dp(760), 0, 1f);
-        scrollParams.topMargin = dp(8);
-        root.addView(scrollView, scrollParams);
+        LinearLayout.LayoutParams sourceParams = new LinearLayout.LayoutParams(dp(760), LinearLayout.LayoutParams.WRAP_CONTENT);
+        sourceParams.topMargin = dp(8);
+        root.addView(sourceGrid, sourceParams);
         return root;
     }
 
@@ -126,6 +113,24 @@ public final class MainActivity extends Activity {
     }
 
     private View createWatchCard(final WatchTarget target) {
+        return createCard(target.title, iconForWatch(target.key), new Runnable() {
+            @Override
+            public void run() {
+                launchWatch(target);
+            }
+        });
+    }
+
+    private View createSourceCard(final SourceItem item) {
+        return createCard(item.title, iconFor(item.kind), new Runnable() {
+            @Override
+            public void run() {
+                switchTo(item);
+            }
+        });
+    }
+
+    private View createCard(String title, String iconText, final Runnable action) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setGravity(Gravity.CENTER);
@@ -135,14 +140,14 @@ public final class MainActivity extends Activity {
         card.setBackgroundColor(PANEL);
 
         TextView icon = new TextView(this);
-        icon.setText(iconForWatch(target.key));
+        icon.setText(iconText);
         icon.setTextColor(TEXT_PRIMARY);
         icon.setTextSize(28);
         icon.setGravity(Gravity.CENTER);
         card.addView(icon, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(38)));
 
         TextView label = new TextView(this);
-        label.setText(target.title);
+        label.setText(title);
         label.setTextColor(TEXT_PRIMARY);
         label.setTextSize(16);
         label.setGravity(Gravity.CENTER);
@@ -164,7 +169,7 @@ public final class MainActivity extends Activity {
         card.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                launchWatch(target);
+                action.run();
             }
         });
         card.setOnKeyListener(new View.OnKeyListener() {
@@ -172,13 +177,21 @@ public final class MainActivity extends Activity {
             public boolean onKey(View view, int keyCode, KeyEvent event) {
                 if (event.getAction() == KeyEvent.ACTION_UP
                         && (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER)) {
-                    launchWatch(target);
+                    action.run();
                     return true;
                 }
                 return false;
             }
         });
         return card;
+    }
+
+    private boolean shouldShowSourceCard(SourceItem item) {
+        return "external".equals(item.key)
+                || "router".equals(item.key)
+                || "av".equals(item.key)
+                || "tv".equals(item.key)
+                || "dtmb".equals(item.key);
     }
 
     private void launchWatch(WatchTarget target) {
@@ -198,7 +211,6 @@ public final class MainActivity extends Activity {
         if (result.success) {
             currentSource = item;
             statusView.setText(getString(R.string.status_success, item.title));
-            updateRows();
             handler.postDelayed(new Runnable() {
                 @Override
                 public void run() {
@@ -216,13 +228,6 @@ public final class MainActivity extends Activity {
         if (detected != null) {
             currentSource = detected;
         }
-        updateRows();
-    }
-
-    private void updateRows() {
-        for (SourceRow row : rows.values()) {
-            row.bind(row.item == currentSource);
-        }
     }
 
     private int dp(int value) {
@@ -230,121 +235,36 @@ public final class MainActivity extends Activity {
         return Math.round(value * density);
     }
 
-    private final class SourceRow {
-        final SourceItem item;
-        final LinearLayout container;
-        final TextView signalDot;
-        final TextView indicator;
-
-        SourceRow(final SourceItem item) {
-            this.item = item;
-            container = new LinearLayout(MainActivity.this);
-            container.setOrientation(LinearLayout.HORIZONTAL);
-            container.setGravity(Gravity.CENTER_VERTICAL);
-            container.setFocusable(true);
-            container.setClickable(true);
-            container.setPadding(dp(28), 0, dp(28), 0);
-            container.setBackgroundColor(PANEL);
-            container.setMinimumHeight(dp(74));
-
-            TextView icon = new TextView(MainActivity.this);
-            icon.setText(iconFor(item.kind));
-            icon.setTextColor(TEXT_PRIMARY);
-            icon.setTextSize(28);
-            icon.setGravity(Gravity.CENTER);
-            container.addView(icon, new LinearLayout.LayoutParams(dp(64), LinearLayout.LayoutParams.MATCH_PARENT));
-
-            signalDot = new TextView(MainActivity.this);
-            signalDot.setText("•");
-            signalDot.setTextColor(ONLINE);
-            signalDot.setTextSize(28);
-            signalDot.setGravity(Gravity.CENTER);
-            container.addView(signalDot, new LinearLayout.LayoutParams(dp(28), LinearLayout.LayoutParams.MATCH_PARENT));
-
-            TextView label = new TextView(MainActivity.this);
-            label.setText(item.title);
-            label.setTextColor(TEXT_PRIMARY);
-            label.setTextSize(27);
-            label.setSingleLine(true);
-            label.setGravity(Gravity.CENTER_VERTICAL);
-            container.addView(label, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f));
-
-            indicator = new TextView(MainActivity.this);
-            indicator.setText("●");
-            indicator.setTextColor(INDICATOR);
-            indicator.setTextSize(26);
-            indicator.setGravity(Gravity.CENTER);
-            container.addView(indicator, new LinearLayout.LayoutParams(dp(54), LinearLayout.LayoutParams.MATCH_PARENT));
-
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    dp(74)
-            );
-            params.bottomMargin = dp(4);
-            container.setLayoutParams(params);
-
-            container.setOnFocusChangeListener(new View.OnFocusChangeListener() {
-                @Override
-                public void onFocusChange(View view, boolean hasFocus) {
-                    container.setBackgroundColor(hasFocus ? FOCUSED : PANEL);
-                }
-            });
-            container.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View view) {
-                    switchTo(item);
-                }
-            });
-            container.setOnKeyListener(new View.OnKeyListener() {
-                @Override
-                public boolean onKey(View view, int keyCode, KeyEvent event) {
-                    if (event.getAction() == KeyEvent.ACTION_UP
-                            && (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER)) {
-                        switchTo(item);
-                        return true;
-                    }
-                    return false;
-                }
-            });
-        }
-
-        void bind(boolean selected) {
-            indicator.setTextColor(selected ? TEXT_PRIMARY : INDICATOR);
-            signalDot.setVisibility(selected || item.kind == SourceKind.HDMI || item.isDeviceAlias()
-                    ? View.VISIBLE : View.INVISIBLE);
-        }
-
-        private String iconFor(SourceKind kind) {
-            switch (kind) {
-                case HDMI:
-                    return "▭";
-                case ATV:
-                    return "TV";
-                case AV:
-                    return "◉";
-                case DTMB:
-                    return "▣";
-                case EXTERNAL:
-                    return "▭";
-                case ROUTER:
-                    return "⌂";
-                case MI_BOX:
-                    return "▣";
-                case MI_PORT:
-                    return "◇";
-                case BLU_RAY:
-                    return "BD";
-                case SOUNDBAR:
-                    return "▰";
-                case HOME_CINEMA:
-                    return "▤";
-                case USB:
-                    return "USB";
-                case VGA:
-                    return "VGA";
-                default:
-                    return "•";
-            }
+    private String iconFor(SourceKind kind) {
+        switch (kind) {
+            case HDMI:
+                return "▭";
+            case ATV:
+                return "TV";
+            case AV:
+                return "◉";
+            case DTMB:
+                return "▣";
+            case EXTERNAL:
+                return "▭";
+            case ROUTER:
+                return "⌂";
+            case MI_BOX:
+                return "▣";
+            case MI_PORT:
+                return "◇";
+            case BLU_RAY:
+                return "BD";
+            case SOUNDBAR:
+                return "▰";
+            case HOME_CINEMA:
+                return "▤";
+            case USB:
+                return "USB";
+            case VGA:
+                return "VGA";
+            default:
+                return "•";
         }
     }
 
