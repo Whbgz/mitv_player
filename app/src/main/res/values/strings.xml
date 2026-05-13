@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MiTV Player</string>
+    <string name="title">MiTV Player</string>
+    <string name="section_watch">观看电视</string>
+    <string name="section_source">切换信号源</string>
+    <string name="status_ready">请选择观看入口或信号源</string>
+    <string name="status_switching">正在切换到 %1$s...</string>
+    <string name="status_success">已发送切换请求：%1$s</string>
+    <string name="status_failed">无法切换到 %1$s，请确认模拟电视应用存在并允许第三方应用切换信号源。</string>
+    <string name="status_launching">正在打开 %1$s...</string>
+    <string name="status_launch_success">已发送打开请求：%1$s</string>
+    <string name="status_launch_failed">无法打开 %1$s，请确认模拟电视应用存在并允许第三方启动。</string>
+</resources>
