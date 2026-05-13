@@ -74,9 +74,16 @@ final class EmbeddedTvEngine {
                     public void onTracksChanged(String inputId, List<TvTrackInfo> tracks) {
                         session.audioTrackCount = countTracks(tracks, TvTrackInfo.TYPE_AUDIO);
                         session.videoTrackCount = countTracks(tracks, TvTrackInfo.TYPE_VIDEO);
+                        String selectedAudio = selectFirstTrack(session, tracks, TvTrackInfo.TYPE_AUDIO);
+                        String selectedVideo = selectFirstTrack(session, tracks, TvTrackInfo.TYPE_VIDEO);
+                        if (session.tvView != null) {
+                            session.tvView.setStreamVolume(1.0f);
+                        }
                         session.notifyStatus(
                                 "TvView 回调：音频轨道 " + session.audioTrackCount
-                                        + "，视频轨道 " + session.videoTrackCount,
+                                        + "，视频轨道 " + session.videoTrackCount
+                                        + "\n已选择音频：" + selectedAudio
+                                        + "\n已选择视频：" + selectedVideo,
                                 session.videoTrackCount > 0
                         );
                     }
@@ -151,7 +158,7 @@ final class EmbeddedTvEngine {
         }
         try {
             int result = session.audioManager.requestAudioFocus(
-                    null,
+                    session.audioFocusChangeListener,
                     AudioManager.STREAM_MUSIC,
                     AudioManager.AUDIOFOCUS_GAIN
             );
@@ -165,7 +172,7 @@ final class EmbeddedTvEngine {
         if (session.audioManager == null) {
             return;
         }
-        session.audioManager.abandonAudioFocus(null);
+        session.audioManager.abandonAudioFocus(session.audioFocusChangeListener);
     }
 
     private static int countTracks(List<TvTrackInfo> tracks, int type) {
@@ -179,6 +186,28 @@ final class EmbeddedTvEngine {
             }
         }
         return count;
+    }
+
+    private static String selectFirstTrack(Session session, List<TvTrackInfo> tracks, int type) {
+        if (session.tvView == null || tracks == null) {
+            return "无";
+        }
+        for (TvTrackInfo track : tracks) {
+            if (track == null || track.getType() != type) {
+                continue;
+            }
+            String id = track.getId();
+            if (id == null || id.length() == 0) {
+                return "空ID";
+            }
+            try {
+                session.tvView.selectTrack(type, id);
+                return id;
+            } catch (Throwable throwable) {
+                return throwable.getClass().getSimpleName();
+            }
+        }
+        return "无";
     }
 
     private static TvInputInfo chooseInput(Session session) {
@@ -258,6 +287,15 @@ final class EmbeddedTvEngine {
         final int sourceId;
         final StatusListener listener;
         final StringBuilder errors = new StringBuilder();
+        final AudioManager.OnAudioFocusChangeListener audioFocusChangeListener =
+                new AudioManager.OnAudioFocusChangeListener() {
+                    @Override
+                    public void onAudioFocusChange(int focusChange) {
+                        if (tvView != null && focusChange == AudioManager.AUDIOFOCUS_GAIN) {
+                            tvView.setStreamVolume(1.0f);
+                        }
+                    }
+                };
 
         int step;
         TvInputManager tvInputManager;

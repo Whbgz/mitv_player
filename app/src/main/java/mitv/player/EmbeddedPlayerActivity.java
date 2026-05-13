@@ -2,6 +2,7 @@ package mitv.player;
 
 import android.app.Activity;
 import android.graphics.Color;
+import android.media.AudioManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -24,6 +25,7 @@ public final class EmbeddedPlayerActivity extends Activity implements EmbeddedTv
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        setVolumeControlStream(AudioManager.STREAM_MUSIC);
         String title = getIntent().getStringExtra(EXTRA_TITLE);
         String sourceName = getIntent().getStringExtra(EXTRA_SOURCE_NAME);
         int sourceId = getIntent().getIntExtra(EXTRA_SOURCE_ID, 3);
