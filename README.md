@@ -66,6 +66,15 @@ app/build/outputs/apk/debug/app-debug.apk
 
 如果内置播放没有画面，请看屏幕底部状态文字，它会显示当前找不到哪个私有类或方法。后续可以根据这个错误继续补 ROM 适配。
 
+内置 HDMI 实验还需要一次 ADB 授权：
+
+```powershell
+adb shell pm grant mitv.player android.permission.WRITE_SECURE_SETTINGS
+adb shell am force-stop mitv.player
+```
+
+新版 APK 会强制按 32 位 ABI 安装运行，并打包原模拟电视 APK 中的 32 位 native 库，用来匹配电视系统里的 32 位 TV JNI。
+
 ## ADB 调试
 
 ```powershell
