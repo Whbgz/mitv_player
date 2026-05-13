@@ -13,9 +13,12 @@ import android.net.Uri;
 import android.view.View;
 import android.widget.FrameLayout;
 
+import java.lang.reflect.Method;
 import java.util.List;
 
 final class EmbeddedTvEngine {
+    private static final String TVPLAYER_PACKAGE = "com.xiaomi.mitv.tvplayer";
+
     interface StatusListener {
         void onStatus(String message, boolean videoMaybeVisible);
     }
@@ -85,6 +88,7 @@ final class EmbeddedTvEngine {
                                         + "\n已选择音频：" + selectedAudio
                                         + "\n已选择视频：" + selectedVideo
                                         + "\n主播放：" + mainResult
+                                        + "\n私有主播放：" + session.privateMainTvViewResult
                                         + "\n音频路由：" + audioRoute,
                                 session.videoTrackCount > 0
                         );
@@ -144,6 +148,14 @@ final class EmbeddedTvEngine {
                             + "\n等待回调";
                 }
                 return session.report("系统 TvView 播放失败");
+            case 4:
+                session.privateMainTvViewResult = registerMitvMainTvView(session);
+                session.privateVolumeResult = syncMitvVolume(session);
+                session.step++;
+                return "已尝试模拟电视主播放注册"
+                        + "\n私有主播放：" + session.privateMainTvViewResult
+                        + "\n私有音量：" + session.privateVolumeResult
+                        + "\n" + primeAudioRoute(session);
             default:
                 session.step = Session.STEP_COUNT;
                 return "诊断已完成";
@@ -166,6 +178,195 @@ final class EmbeddedTvEngine {
             session.mainTvViewResult = "setMain=" + name;
             return session.mainTvViewResult;
         }
+    }
+
+    private static String registerMitvMainTvView(Session session) {
+        if (session == null || session.tvView == null) {
+            return "TvView=null";
+        }
+        try {
+            Object manager = getMitvTvViewManager(session);
+            if (manager == null) {
+                return "TvViewManager=null";
+            }
+            Method method = findMethod(
+                    manager.getClass(),
+                    "registerMainTvView",
+                    View.class,
+                    Object.class
+            );
+            if (method == null) {
+                Class<?> iface = loadMitvClass(session, "mitv.tv.TvViewManager");
+                method = iface == null ? null : findMethod(iface, "registerMainTvView", View.class, Object.class);
+            }
+            if (method == null) {
+                return "registerMainTvView=NoSuchMethod";
+            }
+            Object result = method.invoke(manager, session.tvView, null);
+            session.privateMainTvViewRegistered = true;
+            return "registerMainTvView=" + String.valueOf(result);
+        } catch (Throwable throwable) {
+            return "registerMainTvView=" + throwableName(throwable);
+        }
+    }
+
+    private static String unregisterMitvMainTvView(Session session) {
+        if (session == null || session.tvView == null || session.mitvTvViewManager == null) {
+            return "skip";
+        }
+        try {
+            Method method = findMethod(session.mitvTvViewManager.getClass(), "unregisterTvView", View.class);
+            if (method == null) {
+                Class<?> iface = loadMitvClass(session, "mitv.tv.TvViewManager");
+                method = iface == null ? null : findMethod(iface, "unregisterTvView", View.class);
+            }
+            if (method == null) {
+                return "unregisterTvView=NoSuchMethod";
+            }
+            Object result = method.invoke(session.mitvTvViewManager, session.tvView);
+            session.privateMainTvViewRegistered = false;
+            return "unregisterTvView=" + String.valueOf(result);
+        } catch (Throwable throwable) {
+            return "unregisterTvView=" + throwableName(throwable);
+        }
+    }
+
+    private static String syncMitvVolume(Session session) {
+        try {
+            Object manager = getMitvTvViewManager(session);
+            if (manager == null) {
+                return "TvViewManager=null";
+            }
+            if (session.audioManager == null) {
+                session.audioManager = (AudioManager) session.context.getSystemService(Context.AUDIO_SERVICE);
+            }
+            int volume = 0;
+            if (session.audioManager != null) {
+                volume = session.audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
+            }
+            Method method = findMethod(manager.getClass(), "setVolumeIndex", int.class);
+            if (method == null) {
+                Class<?> iface = loadMitvClass(session, "mitv.tv.TvViewManager");
+                method = iface == null ? null : findMethod(iface, "setVolumeIndex", int.class);
+            }
+            if (method == null) {
+                return "setVolumeIndex=NoSuchMethod";
+            }
+            method.invoke(manager, volume);
+            return "setVolumeIndex=" + volume;
+        } catch (Throwable throwable) {
+            return "setVolumeIndex=" + throwableName(throwable);
+        }
+    }
+
+    private static Object getMitvTvViewManager(Session session) throws Exception {
+        if (session.mitvTvViewManager != null) {
+            return session.mitvTvViewManager;
+        }
+        Class<?> tvContextClass = loadMitvClass(session, "mitv.tv.TvContext");
+        if (tvContextClass == null) {
+            return null;
+        }
+        Method getInstance = findMethod(tvContextClass, "getInstance");
+        if (getInstance == null) {
+            throw new NoSuchMethodException("TvContext.getInstance");
+        }
+        Object tvContext = getInstance.invoke(null);
+        session.mitvTvContext = tvContext;
+        if (tvContext == null) {
+            return null;
+        }
+        Method getTvViewManager = findMethod(tvContext.getClass(), "getTvViewManager");
+        if (getTvViewManager == null) {
+            getTvViewManager = findMethod(tvContextClass, "getTvViewManager");
+        }
+        if (getTvViewManager == null) {
+            throw new NoSuchMethodException("TvContext.getTvViewManager");
+        }
+        session.mitvTvViewManager = getTvViewManager.invoke(tvContext);
+        return session.mitvTvViewManager;
+    }
+
+    private static Class<?> loadMitvClass(Session session, String className) {
+        if (session.tvPlayerClassLoader == null) {
+            try {
+                Context tvPlayerContext = session.context.createPackageContext(
+                        TVPLAYER_PACKAGE,
+                        Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY
+                );
+                session.tvPlayerClassLoader = tvPlayerContext.getClassLoader();
+            } catch (Throwable ignored) {
+                session.tvPlayerClassLoader = EmbeddedTvEngine.class.getClassLoader();
+            }
+        }
+        try {
+            return Class.forName(className, true, session.tvPlayerClassLoader);
+        } catch (Throwable ignored) {
+            try {
+                return Class.forName(className);
+            } catch (Throwable ignoredAgain) {
+                return null;
+            }
+        }
+    }
+
+    private static Method findMethod(Class<?> type, String name, Class<?>... parameterTypes) {
+        if (type == null) {
+            return null;
+        }
+        try {
+            Method method = type.getMethod(name, parameterTypes);
+            method.setAccessible(true);
+            return method;
+        } catch (Throwable ignored) {
+            // Fall through to a looser lookup for ROM classes that expose methods
+            // through generated proxies or non-standard class loaders.
+        }
+        Method method = findCompatibleMethod(type.getMethods(), name, parameterTypes);
+        if (method != null) {
+            return method;
+        }
+        return findCompatibleMethod(type.getDeclaredMethods(), name, parameterTypes);
+    }
+
+    private static Method findCompatibleMethod(Method[] methods, String name, Class<?>... parameterTypes) {
+        for (Method method : methods) {
+            if (!name.equals(method.getName())) {
+                continue;
+            }
+            Class<?>[] actualTypes = method.getParameterTypes();
+            if (actualTypes.length != parameterTypes.length) {
+                continue;
+            }
+            boolean compatible = true;
+            for (int i = 0; i < actualTypes.length; i++) {
+                if (!actualTypes[i].isAssignableFrom(parameterTypes[i])
+                        && !parameterTypes[i].isAssignableFrom(actualTypes[i])) {
+                    compatible = false;
+                    break;
+                }
+            }
+            if (compatible) {
+                try {
+                    method.setAccessible(true);
+                } catch (Throwable ignored) {
+                    // Public invocation may still work.
+                }
+                return method;
+            }
+        }
+        return null;
+    }
+
+    private static String throwableName(Throwable throwable) {
+        Throwable cause = throwable.getCause();
+        Throwable value = cause == null ? throwable : cause;
+        String message = value.getMessage();
+        if (message == null || message.length() == 0) {
+            return value.getClass().getSimpleName();
+        }
+        message = message.replace('\n', ' ');
+        return value.getClass().getSimpleName() + "(" + trimForStatus(message, 120) + ")";
     }
 
     private static String primeAudioRoute(Session session) {
@@ -251,6 +452,9 @@ final class EmbeddedTvEngine {
 
     static void stop(Session session) {
         if (session != null) {
+            if (session.privateMainTvViewRegistered) {
+                unregisterMitvMainTvView(session);
+            }
             if (session.tvView != null) {
                 session.tvView.reset();
             }
@@ -393,7 +597,7 @@ final class EmbeddedTvEngine {
     }
 
     static final class Session {
-        static final int STEP_COUNT = 4;
+        static final int STEP_COUNT = 5;
 
         final Context context;
         final FrameLayout container;
@@ -417,9 +621,15 @@ final class EmbeddedTvEngine {
         TvInputInfo selectedInput;
         TvView tvView;
         AudioManager audioManager;
+        ClassLoader tvPlayerClassLoader;
+        Object mitvTvContext;
+        Object mitvTvViewManager;
         int audioTrackCount;
         int videoTrackCount;
         String mainTvViewResult = "未调用";
+        String privateMainTvViewResult = "未调用";
+        String privateVolumeResult = "未调用";
+        boolean privateMainTvViewRegistered;
         boolean tuned;
 
         Session(
@@ -450,6 +660,8 @@ final class EmbeddedTvEngine {
                     return "下一步：创建 Android TvView";
                 case 3:
                     return "下一步：tune 到系统 HDMI 输入";
+                case 4:
+                    return "下一步：注册模拟电视主播放";
                 default:
                     return "诊断已完成";
             }
