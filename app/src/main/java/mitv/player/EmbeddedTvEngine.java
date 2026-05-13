@@ -77,12 +77,14 @@ final class EmbeddedTvEngine {
                         session.videoTrackCount = countTracks(tracks, TvTrackInfo.TYPE_VIDEO);
                         String selectedAudio = selectFirstTrack(session, tracks, TvTrackInfo.TYPE_AUDIO);
                         String selectedVideo = selectFirstTrack(session, tracks, TvTrackInfo.TYPE_VIDEO);
+                        String mainResult = makeTvViewMain(session);
                         String audioRoute = primeAudioRoute(session);
                         session.notifyStatus(
                                 "TvView 回调：音频轨道 " + session.audioTrackCount
                                         + "，视频轨道 " + session.videoTrackCount
                                         + "\n已选择音频：" + selectedAudio
                                         + "\n已选择视频：" + selectedVideo
+                                        + "\n主播放：" + mainResult
                                         + "\n音频路由：" + audioRoute,
                                 session.videoTrackCount > 0
                         );
@@ -128,6 +130,7 @@ final class EmbeddedTvEngine {
                 if (session.tvView != null && session.selectedInput != null) {
                     Uri uri = TvContract.buildChannelUriForPassthroughInput(session.selectedInput.getId());
                     session.tvView.setStreamVolume(1.0f);
+                    session.mainTvViewResult = makeTvViewMain(session);
                     session.tvView.tune(session.selectedInput.getId(), uri);
                     session.tuned = true;
                 } else {
@@ -136,6 +139,7 @@ final class EmbeddedTvEngine {
                 session.step++;
                 if (session.tuned) {
                     return "已调用系统 TvView 播放：" + inputTitle(session.context, session.selectedInput)
+                            + "\n主播放：" + session.mainTvViewResult
                             + "\n" + audioRoute
                             + "\n等待回调";
                 }
@@ -143,6 +147,24 @@ final class EmbeddedTvEngine {
             default:
                 session.step = Session.STEP_COUNT;
                 return "诊断已完成";
+        }
+    }
+
+    private static String makeTvViewMain(Session session) {
+        if (session == null || session.tvView == null) {
+            return "TvView=null";
+        }
+        try {
+            session.tvView.getClass().getMethod("setMain").invoke(session.tvView);
+            session.mainTvViewResult = "setMain=ok";
+            return session.mainTvViewResult;
+        } catch (Throwable throwable) {
+            Throwable cause = throwable.getCause();
+            String name = cause == null
+                    ? throwable.getClass().getSimpleName()
+                    : cause.getClass().getSimpleName();
+            session.mainTvViewResult = "setMain=" + name;
+            return session.mainTvViewResult;
         }
     }
 
@@ -397,6 +419,7 @@ final class EmbeddedTvEngine {
         AudioManager audioManager;
         int audioTrackCount;
         int videoTrackCount;
+        String mainTvViewResult = "未调用";
         boolean tuned;
 
         Session(
