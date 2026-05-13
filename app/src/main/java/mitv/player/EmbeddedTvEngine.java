@@ -1,6 +1,7 @@
 package mitv.player;
 
 import android.content.Context;
+import android.media.AudioManager;
 import android.media.tv.TvContentRating;
 import android.media.tv.TvContract;
 import android.media.tv.TvInputInfo;
@@ -52,6 +53,7 @@ final class EmbeddedTvEngine {
             case 2:
                 session.tvView = new TvView(session.context);
                 session.tvView.setVisibility(View.VISIBLE);
+                session.tvView.setStreamVolume(1.0f);
                 session.tvView.setCallback(new TvView.TvInputCallback() {
                     @Override
                     public void onConnectionFailed(String inputId) {
@@ -70,8 +72,13 @@ final class EmbeddedTvEngine {
 
                     @Override
                     public void onTracksChanged(String inputId, List<TvTrackInfo> tracks) {
-                        int count = tracks == null ? 0 : tracks.size();
-                        session.notifyStatus("TvView 回调：轨道数量 " + count, count > 0);
+                        session.audioTrackCount = countTracks(tracks, TvTrackInfo.TYPE_AUDIO);
+                        session.videoTrackCount = countTracks(tracks, TvTrackInfo.TYPE_VIDEO);
+                        session.notifyStatus(
+                                "TvView 回调：音频轨道 " + session.audioTrackCount
+                                        + "，视频轨道 " + session.videoTrackCount,
+                                session.videoTrackCount > 0
+                        );
                     }
 
                     @Override
@@ -106,8 +113,10 @@ final class EmbeddedTvEngine {
                 session.step++;
                 return session.report("已完成：创建 Android TvView");
             case 3:
+                requestAudioFocus(session);
                 if (session.tvView != null && session.selectedInput != null) {
                     Uri uri = TvContract.buildChannelUriForPassthroughInput(session.selectedInput.getId());
+                    session.tvView.setStreamVolume(1.0f);
                     session.tvView.tune(session.selectedInput.getId(), uri);
                     session.tuned = true;
                 } else {
@@ -116,7 +125,7 @@ final class EmbeddedTvEngine {
                 session.step++;
                 if (session.tuned) {
                     return "已调用系统 TvView 播放：" + inputTitle(session.context, session.selectedInput)
-                            + "\n等待 TvView 回调，如果有画面，底部提示会自动隐藏";
+                            + "\n已请求音频焦点，TvView 音量=100%\n等待回调";
                 }
                 return session.report("系统 TvView 播放失败");
             default:
@@ -126,9 +135,50 @@ final class EmbeddedTvEngine {
     }
 
     static void stop(Session session) {
-        if (session != null && session.tvView != null) {
-            session.tvView.reset();
+        if (session != null) {
+            if (session.tvView != null) {
+                session.tvView.reset();
+            }
+            abandonAudioFocus(session);
         }
+    }
+
+    private static void requestAudioFocus(Session session) {
+        session.audioManager = (AudioManager) session.context.getSystemService(Context.AUDIO_SERVICE);
+        if (session.audioManager == null) {
+            append(session.errors, "AudioManager=null");
+            return;
+        }
+        try {
+            int result = session.audioManager.requestAudioFocus(
+                    null,
+                    AudioManager.STREAM_MUSIC,
+                    AudioManager.AUDIOFOCUS_GAIN
+            );
+            append(session.errors, "requestAudioFocus=" + result);
+        } catch (Throwable throwable) {
+            append(session.errors, "requestAudioFocus:" + throwable.getClass().getSimpleName());
+        }
+    }
+
+    private static void abandonAudioFocus(Session session) {
+        if (session.audioManager == null) {
+            return;
+        }
+        session.audioManager.abandonAudioFocus(null);
+    }
+
+    private static int countTracks(List<TvTrackInfo> tracks, int type) {
+        if (tracks == null) {
+            return 0;
+        }
+        int count = 0;
+        for (TvTrackInfo track : tracks) {
+            if (track != null && track.getType() == type) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private static TvInputInfo chooseInput(Session session) {
@@ -214,6 +264,9 @@ final class EmbeddedTvEngine {
         List<TvInputInfo> inputs;
         TvInputInfo selectedInput;
         TvView tvView;
+        AudioManager audioManager;
+        int audioTrackCount;
+        int videoTrackCount;
         boolean tuned;
 
         Session(
