@@ -1,4 +1,4 @@
-﻿package mitv.player;
+package mitv.player;
 
 final class LaunchResult {
     final boolean success;

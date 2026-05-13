@@ -1,4 +1,4 @@
-﻿package mitv.player;
+package mitv.player;
 
 import android.app.Activity;
 import android.graphics.Color;

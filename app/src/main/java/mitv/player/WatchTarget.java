@@ -1,4 +1,4 @@
-﻿package mitv.player;
+package mitv.player;
 
 final class WatchTarget {
     final String key;

@@ -1,4 +1,4 @@
-﻿package mitv.player;
+package mitv.player;
 
 import java.io.IOException;
 

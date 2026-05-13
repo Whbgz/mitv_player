@@ -1,4 +1,4 @@
-﻿package mitv.player;
+package mitv.player;
 
 import java.util.Arrays;
 import java.util.Collections;

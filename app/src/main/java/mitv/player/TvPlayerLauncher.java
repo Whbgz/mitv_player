@@ -1,4 +1,4 @@
-﻿package mitv.player;
+package mitv.player;
 
 import android.content.ComponentName;
 import android.content.Context;
