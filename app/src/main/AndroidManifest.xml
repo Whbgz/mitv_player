@@ -5,6 +5,7 @@
          Declaring these keeps the APK ready for system signing without breaking
          ordinary sideload installs. -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
     <uses-permission android:name="android.permission.DEVICE_POWER" />
 
     <application

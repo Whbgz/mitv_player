@@ -60,6 +60,9 @@ final class EmbeddedTvEngine {
         if (registered && switched) {
             return "已调用内置播放：" + sourceName + " / TvPlayer / setCurrentSource(" + sourceId + ")";
         }
+        if (needsSecureSettingsGrant(errors)) {
+            return "缺少 WRITE_SECURE_SETTINGS 权限，请执行：adb shell pm grant mitv.player android.permission.WRITE_SECURE_SETTINGS，然后重启应用";
+        }
         if (registered) {
             return "已注册画面，但切源失败：" + compact(errors.toString());
         }
@@ -236,6 +239,10 @@ final class EmbeddedTvEngine {
             return "未返回错误信息";
         }
         return value.length() > 900 ? value.substring(0, 900) + "..." : value;
+    }
+
+    private static boolean needsSecureSettingsGrant(StringBuilder errors) {
+        return errors != null && errors.toString().contains("WRITE_SECURE_SETTINGS");
     }
 
     private static void append(StringBuilder errors, String message) {
