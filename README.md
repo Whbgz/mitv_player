@@ -56,6 +56,12 @@ gradle :app:assembleDebug
 
 普通侧载安装时，如果系统拒绝第三方应用切换信号源，需要把 APK 做成系统应用或使用电视固件对应的平台证书签名。
 
+## 播放能力边界
+
+当前普通安装版不会内置 HDMI/ATV/DTMB 的底层视频播放器，而是打开系统模拟电视应用暴露的播放入口。原因是外部输入源播放依赖小米电视 ROM 私有服务和权限，例如 `mitv.tv.Player`、`mitv.tv.TvViewManager`、`mitv.tv.SourceManager`、TV HAL/native 库以及系统签名权限。没有系统签名时，普通 APK 不能直接拿到 HDMI/DTMB/ATV 的视频流并自己渲染。
+
+如果后续能把 APK 做成系统应用或拿到平台签名，才适合继续尝试把播放 Surface 和信号源控制直接内置进本应用。
+
 ## 调试命令
 
 可以先用 ADB 验证电视是否接受原 action：

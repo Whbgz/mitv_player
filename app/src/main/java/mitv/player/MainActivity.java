@@ -12,6 +12,7 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.widget.GridLayout;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 public final class MainActivity extends Activity {
@@ -24,6 +25,7 @@ public final class MainActivity extends Activity {
     private static final int ONLINE = Color.rgb(34, 197, 94);
 
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private ScrollView scrollView;
     private TextView statusView;
     private SourceItem currentSource;
 
@@ -41,11 +43,20 @@ public final class MainActivity extends Activity {
     }
 
     private View createContentView() {
+        scrollView = new ScrollView(this);
+        scrollView.setFillViewport(false);
+        scrollView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        scrollView.setBackgroundColor(BACKGROUND);
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setPadding(dp(48), dp(64), dp(48), dp(36));
+        root.setPadding(dp(48), dp(46), dp(48), dp(42));
         root.setBackgroundColor(BACKGROUND);
+        scrollView.addView(root, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT
+        ));
 
         TextView title = new TextView(this);
         title.setText(R.string.title);
@@ -72,7 +83,7 @@ public final class MainActivity extends Activity {
 
         TextView watchHeader = createSectionHeader(R.string.section_watch);
         LinearLayout.LayoutParams watchHeaderParams = new LinearLayout.LayoutParams(dp(760), LinearLayout.LayoutParams.WRAP_CONTENT);
-        watchHeaderParams.topMargin = dp(32);
+        watchHeaderParams.topMargin = dp(24);
         root.addView(watchHeader, watchHeaderParams);
 
         GridLayout watchGrid = new GridLayout(this);
@@ -86,7 +97,7 @@ public final class MainActivity extends Activity {
 
         TextView sourceHeader = createSectionHeader(R.string.section_source);
         LinearLayout.LayoutParams sourceHeaderParams = new LinearLayout.LayoutParams(dp(760), LinearLayout.LayoutParams.WRAP_CONTENT);
-        sourceHeaderParams.topMargin = dp(22);
+        sourceHeaderParams.topMargin = dp(18);
         root.addView(sourceHeader, sourceHeaderParams);
 
         GridLayout sourceGrid = new GridLayout(this);
@@ -99,7 +110,7 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams sourceParams = new LinearLayout.LayoutParams(dp(760), LinearLayout.LayoutParams.WRAP_CONTENT);
         sourceParams.topMargin = dp(8);
         root.addView(sourceGrid, sourceParams);
-        return root;
+        return scrollView;
     }
 
     private TextView createSectionHeader(int resId) {
@@ -156,7 +167,7 @@ public final class MainActivity extends Activity {
 
         GridLayout.LayoutParams params = new GridLayout.LayoutParams();
         params.width = dp(178);
-        params.height = dp(92);
+        params.height = dp(88);
         params.setMargins(dp(6), dp(6), dp(6), dp(6));
         card.setLayoutParams(params);
 
@@ -164,6 +175,9 @@ public final class MainActivity extends Activity {
             @Override
             public void onFocusChange(View view, boolean hasFocus) {
                 view.setBackgroundColor(hasFocus ? ONLINE : PANEL);
+                if (hasFocus) {
+                    ensureVisible(view);
+                }
             }
         });
         card.setOnClickListener(new View.OnClickListener() {
@@ -184,6 +198,32 @@ public final class MainActivity extends Activity {
             }
         });
         return card;
+    }
+
+    private void ensureVisible(final View view) {
+        if (scrollView == null) {
+            return;
+        }
+        scrollView.post(new Runnable() {
+            @Override
+            public void run() {
+                int[] scrollLocation = new int[2];
+                int[] viewLocation = new int[2];
+                scrollView.getLocationOnScreen(scrollLocation);
+                view.getLocationOnScreen(viewLocation);
+
+                int top = viewLocation[1] - scrollLocation[1];
+                int bottom = top + view.getHeight();
+                int viewport = scrollView.getHeight();
+                int padding = dp(36);
+
+                if (bottom > viewport - padding) {
+                    scrollView.smoothScrollBy(0, bottom - viewport + padding);
+                } else if (top < padding) {
+                    scrollView.smoothScrollBy(0, top - padding);
+                }
+            }
+        });
     }
 
     private boolean shouldShowSourceCard(SourceItem item) {
