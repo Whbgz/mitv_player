@@ -1,9 +1,11 @@
 package mitv.player;
 
 import android.content.Context;
+import android.media.tv.TvContentRating;
 import android.media.tv.TvContract;
 import android.media.tv.TvInputInfo;
 import android.media.tv.TvInputManager;
+import android.media.tv.TvTrackInfo;
 import android.media.tv.TvView;
 import android.net.Uri;
 import android.view.View;
@@ -12,11 +14,21 @@ import android.widget.FrameLayout;
 import java.util.List;
 
 final class EmbeddedTvEngine {
+    interface StatusListener {
+        void onStatus(String message, boolean videoMaybeVisible);
+    }
+
     private EmbeddedTvEngine() {
     }
 
-    static Session createSession(Context context, FrameLayout container, String sourceName, int sourceId) {
-        return new Session(context, container, sourceName, sourceId);
+    static Session createSession(
+            Context context,
+            FrameLayout container,
+            String sourceName,
+            int sourceId,
+            StatusListener listener
+    ) {
+        return new Session(context, container, sourceName, sourceId, listener);
     }
 
     static String runNextStep(Session session) {
@@ -39,6 +51,54 @@ final class EmbeddedTvEngine {
                 return session.report("已完成：扫描系统 TV 输入\n" + describeInputs(session));
             case 2:
                 session.tvView = new TvView(session.context);
+                session.tvView.setVisibility(View.VISIBLE);
+                session.tvView.setCallback(new TvView.TvInputCallback() {
+                    @Override
+                    public void onConnectionFailed(String inputId) {
+                        session.notifyStatus("TvView 回调：连接失败\n" + inputId, false);
+                    }
+
+                    @Override
+                    public void onDisconnected(String inputId) {
+                        session.notifyStatus("TvView 回调：已断开\n" + inputId, false);
+                    }
+
+                    @Override
+                    public void onChannelRetuned(String inputId, Uri channelUri) {
+                        session.notifyStatus("TvView 回调：已调谐\n" + inputId + "\n" + channelUri, true);
+                    }
+
+                    @Override
+                    public void onTracksChanged(String inputId, List<TvTrackInfo> tracks) {
+                        int count = tracks == null ? 0 : tracks.size();
+                        session.notifyStatus("TvView 回调：轨道数量 " + count, count > 0);
+                    }
+
+                    @Override
+                    public void onTrackSelected(String inputId, int type, String trackId) {
+                        session.notifyStatus("TvView 回调：选择轨道 type=" + type + " id=" + trackId, true);
+                    }
+
+                    @Override
+                    public void onVideoAvailable(String inputId) {
+                        session.notifyStatus("TvView 回调：视频可用\n" + inputId, true);
+                    }
+
+                    @Override
+                    public void onVideoUnavailable(String inputId, int reason) {
+                        session.notifyStatus("TvView 回调：视频不可用 reason=" + reason + "\n" + inputId, false);
+                    }
+
+                    @Override
+                    public void onContentAllowed(String inputId) {
+                        session.notifyStatus("TvView 回调：内容允许\n" + inputId, true);
+                    }
+
+                    @Override
+                    public void onContentBlocked(String inputId, TvContentRating rating) {
+                        session.notifyStatus("TvView 回调：内容被阻止\n" + inputId + "\n" + rating, false);
+                    }
+                });
                 session.container.addView(session.tvView, 0, new FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT,
                         FrameLayout.LayoutParams.MATCH_PARENT
@@ -55,7 +115,8 @@ final class EmbeddedTvEngine {
                 }
                 session.step++;
                 if (session.tuned) {
-                    return "已调用系统 TvView 播放：" + inputTitle(session.context, session.selectedInput);
+                    return "已调用系统 TvView 播放：" + inputTitle(session.context, session.selectedInput)
+                            + "\n等待 TvView 回调，如果有画面，底部提示会自动隐藏";
                 }
                 return session.report("系统 TvView 播放失败");
             default:
@@ -145,6 +206,7 @@ final class EmbeddedTvEngine {
         final FrameLayout container;
         final String sourceName;
         final int sourceId;
+        final StatusListener listener;
         final StringBuilder errors = new StringBuilder();
 
         int step;
@@ -154,11 +216,18 @@ final class EmbeddedTvEngine {
         TvView tvView;
         boolean tuned;
 
-        Session(Context context, FrameLayout container, String sourceName, int sourceId) {
+        Session(
+                Context context,
+                FrameLayout container,
+                String sourceName,
+                int sourceId,
+                StatusListener listener
+        ) {
             this.context = context;
             this.container = container;
             this.sourceName = sourceName;
             this.sourceId = sourceId;
+            this.listener = listener;
         }
 
         boolean isComplete() {
@@ -189,6 +258,12 @@ final class EmbeddedTvEngine {
                 value = value.substring(0, 900) + "...";
             }
             return prefix + "\n" + value;
+        }
+
+        void notifyStatus(String message, boolean videoMaybeVisible) {
+            if (listener != null) {
+                listener.onStatus(message, videoMaybeVisible);
+            }
         }
     }
 }
