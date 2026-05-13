@@ -1,12 +1,19 @@
 # MiTV Player
 
-这是从 `模拟电视_1.5.28.apk` 中提取“观看电视”和“切换信号源”入口后整理出的独立 Android TV 小程序。最终 APK 包名为：
+这是从 `模拟电视_1.5.28.apk` 中提取“观看电视”和“切换信号源”入口后整理出的独立 Android TV 小程序。APK 包名：
 
 ```text
 mitv.player
 ```
 
-原 APK 的 manifest 和 dex 字符串里能看到这些关键入口：
+## 功能
+
+同一个 APK 内包含两个区域：
+
+- `观看电视`：内置 HDMI 1/2/3 实验、上次观看、数字电视、模拟电视、AV 视频、当前外部设备、小米路由器。
+- `切换信号源`：HDMI 1、HDMI 2、HDMI 3、当前外部设备、小米路由器、AV、TV、DTMB。
+
+已从原 APK 的 manifest 和 dex 字符串中确认这些入口或线索：
 
 - `com.xiaomi.mitv.tvplayer.EXTSRC_PLAY`
 - `com.xiaomi.mitv.tvplayer.ATV_PLAY`
@@ -19,52 +26,47 @@ mitv.player
 - `icon_inputsource_router`、`pic_signal_router`、`ch_router`、`ch_router_str`
 - `Mi Box`、`Mi Port`、`Blu-ray player`、`Soundbar`、`Xiaomi Home Cinema`、`USB`、`VGA`
 
-## 功能
+## HDMI 说明
 
-同一个 APK 内包含两个区域：
+实测 `com.xiaomi.mitv.tvplayer.EXTSRC_PLAY` 不按 `sourceName/sourceId` 精确切换 HDMI1/2/3，它会打开电视当前识别到的外部设备。例如设备实际插在 HDMI3 且被识别为“小米路由器”时，即使传 `HDMI1` 或 `ROUTER`，实际也会进入 HDMI3。
 
-- `观看电视`：打开上次观看、数字电视、模拟电视、AV 视频、当前外部设备/小米路由器入口。
-- `切换信号源`：使用模块卡片打开当前外部设备、小米路由器、AV、TV、DTMB。
+所以当前版本里：
 
-切换信号源主界面保留的可用入口：
-
-- `当前外部设备`
-- `小米路由器`
-- `TV`
-- `AV`
-- `DTMB`
-
-注意：实测 `com.xiaomi.mitv.tvplayer.EXTSRC_PLAY` 不按 `sourceName/sourceId` 精确切换 HDMI1/2/3，它会打开电视当前识别到的外部设备。例如设备实际插在 HDMI3 且被识别为“小米路由器”时，即使传 `HDMI1` 或 `ROUTER`，实际也会进入 HDMI3。因此本应用把它标成 `当前外部设备` / `小米路由器` 入口；固定 `HDMI 1/2/3` 只有系统 ROM 反射 API 成功时才会算精确切换成功。
+- `HDMI 1/2/3` 卡片已经恢复显示，但只在系统 ROM 反射 API 可用时才可能精确切换。
+- `当前外部设备` 和 `小米路由器` 仍走原系统模拟电视暴露的 `EXTSRC_PLAY` 入口。
+- `内置 HDMI 1/2/3` 是实验播放入口，会尝试在本应用内创建 `SurfaceView` 并反射调用 `mitv.tv.*` 私有接口。
 
 ## 构建
 
-用 Android Studio 打开本目录，执行 `Build > Build Bundle(s) / APK(s) > Build APK(s)`。
+在 GitHub Actions 里会自动构建 debug APK。构建成功后进入：
 
-命令行环境已安装 Android SDK 和 Gradle 时，也可以执行：
+`Actions` -> 最新的 `build` -> 页面底部 `Artifacts` -> 下载 `mitv-player-debug-apk`
+
+本地命令行也可以执行：
 
 ```powershell
 gradle :app:assembleDebug
 ```
 
-## 权限说明
+生成位置通常是：
 
-小米电视的底层切源能力通常需要系统签名权限。这个应用采用多策略尝试：
+```text
+app/build/outputs/apk/debug/app-debug.apk
+```
 
-1. 优先启动原 `模拟电视` 应用暴露的 action 和 Activity。
-2. 再尝试设备 ROM 中常见的反射 API，例如 `switchInputSource` / `setInputSource`。
-3. 最后通过 `am start` 命令兜底发送同样的 action。
+## 权限边界
 
-普通侧载安装时，如果系统拒绝第三方应用切换信号源，需要把 APK 做成系统应用或使用电视固件对应的平台证书签名。
+小米电视的底层切源和 HDMI/ATV/DTMB 播放通常依赖系统签名权限、TV HAL/native 库和 ROM 私有服务。普通侧载 APK 不一定能直接拿到视频流。
 
-## 播放能力边界
+本应用当前采用多策略尝试：
 
-当前普通安装版不会内置 HDMI/ATV/DTMB 的底层视频播放器，而是打开系统模拟电视应用暴露的播放入口。原因是外部输入源播放依赖小米电视 ROM 私有服务和权限，例如 `mitv.tv.Player`、`mitv.tv.TvViewManager`、`mitv.tv.SourceManager`、TV HAL/native 库以及系统签名权限。没有系统签名时，普通 APK 不能直接拿到 HDMI/DTMB/ATV 的视频流并自己渲染。
+1. 优先启动系统模拟电视暴露的 action 和 Activity。
+2. 对 HDMI1/2/3 尝试反射 ROM 内常见的 `switchInputSource` / `setInputSource`。
+3. `内置 HDMI 1/2/3` 尝试在本应用内绑定 `SurfaceView` 并调用 `mitv.tv.TvViewManager` / `mitv.tv.PlayerManager` / `mitv.tv.SourceManager`。
 
-如果后续能把 APK 做成系统应用或拿到平台签名，才适合继续尝试把播放 Surface 和信号源控制直接内置进本应用。
+如果内置播放没有画面，请看屏幕底部状态文字，它会显示当前找不到哪个私有类或方法。后续可以根据这个错误继续补 ROM 适配。
 
-## 调试命令
-
-可以先用 ADB 验证电视是否接受原 action：
+## ADB 调试
 
 ```powershell
 adb shell am start -a com.xiaomi.mitv.tvplayer.EXTSRC_PLAY --es sourceName HDMI1 --es source_name HDMI1 --ei sourceId 1 --ei source_id 1
@@ -73,8 +75,6 @@ adb shell am start -a com.xiaomi.mitv.tvplayer.AUX_PLAY
 adb shell am start -a com.xiaomi.mitv.tvplayer.ATV_PLAY
 adb shell am start -a com.xiaomi.mitv.tvplayer.DTMB_PLAY
 ```
-
-如果需要精确切换 HDMI1/2/3，需要继续确认电视 ROM 是否开放 `switchInputSource` / `setInputSource` 等系统 API，普通 `EXTSRC_PLAY` action 不足以完成。
 
 安装本应用后，也可以直接调用 `mitv.player` 的快捷入口：
 
@@ -89,4 +89,4 @@ adb shell am start -a mitv.player.ROUTER
 
 ## 工程说明
 
-当前主工程是本目录，构建后生成 `mitv.player`。此前拆出来的 `tv-watch-launcher` 只是过渡工程，功能已经合并进本应用，不再作为最终程序使用。
+当前主工程是本目录，构建后生成 `mitv.player`。之前拆出来的 `tv-watch-launcher` 只是过渡工程，功能已经合并进本应用，不再作为最终程序使用。

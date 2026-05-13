@@ -1,7 +1,9 @@
 package mitv.player;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
@@ -19,7 +21,6 @@ public final class MainActivity extends Activity {
     private static final String TAG = "SourceSwitcher";
     private static final int BACKGROUND = Color.rgb(23, 25, 31);
     private static final int PANEL = Color.rgb(36, 39, 47);
-    private static final int FOCUSED = Color.rgb(47, 125, 246);
     private static final int TEXT_PRIMARY = Color.rgb(242, 244, 248);
     private static final int TEXT_SECONDARY = Color.rgb(156, 163, 175);
     private static final int ONLINE = Color.rgb(34, 197, 94);
@@ -44,14 +45,15 @@ public final class MainActivity extends Activity {
 
     private View createContentView() {
         scrollView = new ScrollView(this);
-        scrollView.setFillViewport(false);
+        scrollView.setFillViewport(true);
+        scrollView.setClipToPadding(false);
         scrollView.setOverScrollMode(View.OVER_SCROLL_NEVER);
         scrollView.setBackgroundColor(BACKGROUND);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setPadding(dp(48), dp(46), dp(48), dp(42));
+        root.setPadding(dp(48), dp(46), dp(48), dp(96));
         root.setBackgroundColor(BACKGROUND);
         scrollView.addView(root, new ScrollView.LayoutParams(
                 ScrollView.LayoutParams.MATCH_PARENT,
@@ -153,7 +155,8 @@ public final class MainActivity extends Activity {
         TextView icon = new TextView(this);
         icon.setText(iconText);
         icon.setTextColor(TEXT_PRIMARY);
-        icon.setTextSize(28);
+        icon.setTextSize(iconText.length() > 3 ? 22 : 28);
+        icon.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         icon.setGravity(Gravity.CENTER);
         card.addView(icon, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(38)));
 
@@ -207,27 +210,17 @@ public final class MainActivity extends Activity {
         scrollView.post(new Runnable() {
             @Override
             public void run() {
-                int[] scrollLocation = new int[2];
-                int[] viewLocation = new int[2];
-                scrollView.getLocationOnScreen(scrollLocation);
-                view.getLocationOnScreen(viewLocation);
-
-                int top = viewLocation[1] - scrollLocation[1];
-                int bottom = top + view.getHeight();
-                int viewport = scrollView.getHeight();
-                int padding = dp(36);
-
-                if (bottom > viewport - padding) {
-                    scrollView.smoothScrollBy(0, bottom - viewport + padding);
-                } else if (top < padding) {
-                    scrollView.smoothScrollBy(0, top - padding);
-                }
+                Rect rect = new Rect(0, -dp(36), view.getWidth(), view.getHeight() + dp(72));
+                view.requestRectangleOnScreen(rect, false);
             }
         });
     }
 
     private boolean shouldShowSourceCard(SourceItem item) {
-        return "external".equals(item.key)
+        return "hdmi1".equals(item.key)
+                || "hdmi2".equals(item.key)
+                || "hdmi3".equals(item.key)
+                || "external".equals(item.key)
                 || "router".equals(item.key)
                 || "av".equals(item.key)
                 || "tv".equals(item.key)
@@ -235,6 +228,14 @@ public final class MainActivity extends Activity {
     }
 
     private void launchWatch(WatchTarget target) {
+        if (target.key.startsWith("embedded_")) {
+            Intent intent = new Intent(this, EmbeddedPlayerActivity.class);
+            intent.putExtra(EmbeddedPlayerActivity.EXTRA_TITLE, target.title);
+            intent.putExtra(EmbeddedPlayerActivity.EXTRA_SOURCE_NAME, target.sourceName);
+            intent.putExtra(EmbeddedPlayerActivity.EXTRA_SOURCE_ID, target.sourceId);
+            startActivity(intent);
+            return;
+        }
         statusView.setText(getString(R.string.status_launching, target.title));
         LaunchResult result = TvPlayerLauncher.launch(this, target);
         if (result.success) {
@@ -278,53 +279,58 @@ public final class MainActivity extends Activity {
     private String iconFor(SourceKind kind) {
         switch (kind) {
             case HDMI:
-                return "▭";
+                return "HDMI";
             case ATV:
                 return "TV";
             case AV:
-                return "◉";
+                return "AV";
             case DTMB:
-                return "▣";
+                return "DTMB";
             case EXTERNAL:
-                return "▭";
+                return "EXT";
             case ROUTER:
-                return "⌂";
+                return "NET";
             case MI_BOX:
-                return "▣";
+                return "BOX";
             case MI_PORT:
-                return "◇";
+                return "PORT";
             case BLU_RAY:
                 return "BD";
             case SOUNDBAR:
-                return "▰";
+                return "BAR";
             case HOME_CINEMA:
-                return "▤";
+                return "HOME";
             case USB:
                 return "USB";
             case VGA:
                 return "VGA";
             default:
-                return "•";
+                return "?";
         }
     }
 
     private String iconForWatch(String key) {
+        if (key.startsWith("embedded_")) {
+            return "HDMI";
+        }
         if ("play".equals(key)) {
-            return "▶";
+            return "PLAY";
         }
         if ("dtmb".equals(key)) {
-            return "▣";
+            return "DTMB";
         }
         if ("atv".equals(key)) {
             return "TV";
         }
         if ("av".equals(key)) {
-            return "◉";
+            return "AV";
         }
         if ("router".equals(key)) {
-            return "⌂";
+            return "NET";
         }
-        return "▭";
+        if ("external".equals(key)) {
+            return "EXT";
+        }
+        return "TV";
     }
 }
-

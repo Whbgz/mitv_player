@@ -24,7 +24,7 @@ final class SourceCatalog {
             new SourceItem("miport", "Mi Port", SourceKind.MI_PORT, 42, "MIPORT", ACTION_EXTSRC_PLAY, TVPLAYER_PACKAGE + ".ExternalSourceActivity", "MiPort", "Mi Port", "output_miport"),
             new SourceItem("bluray", "蓝光播放器", SourceKind.BLU_RAY, 43, "BLURAY", ACTION_EXTSRC_PLAY, TVPLAYER_PACKAGE + ".ExternalSourceActivity", "Blu-ray player", "Blu ray player"),
             new SourceItem("soundbar", "Soundbar", SourceKind.SOUNDBAR, 44, "SOUNDBAR", ACTION_EXTSRC_PLAY, TVPLAYER_PACKAGE + ".ExternalSourceActivity", "Mi soundbar", "Soundbar", "output_mibar"),
-            new SourceItem("homecinema", "小米放映室", SourceKind.HOME_CINEMA, 45, "HOME_CINEMA", ACTION_EXTSRC_PLAY, TVPLAYER_PACKAGE + ".ExternalSourceActivity", "Xiaomi Home Cinema"),
+            new SourceItem("homecinema", "小米影院", SourceKind.HOME_CINEMA, 45, "HOME_CINEMA", ACTION_EXTSRC_PLAY, TVPLAYER_PACKAGE + ".ExternalSourceActivity", "Xiaomi Home Cinema"),
             new SourceItem("usb", "USB", SourceKind.USB, 50, "USB", ACTION_EXTSRC_PLAY, TVPLAYER_PACKAGE + ".ExternalSourceActivity", "ch_usb", "pic_signal_usb", "icon_inputsource_usb"),
             new SourceItem("vga", "VGA", SourceKind.VGA, 60, "VGA", ACTION_EXTSRC_PLAY, TVPLAYER_PACKAGE + ".ExternalSourceActivity", "ch_vga", "input_source_name_vga")
     ));
@@ -41,4 +41,3 @@ final class SourceCatalog {
         return null;
     }
 }
-

@@ -44,5 +44,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".EmbeddedPlayerActivity"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
+            android:exported="false"
+            android:screenOrientation="landscape" />
+
     </application>
 </manifest>
