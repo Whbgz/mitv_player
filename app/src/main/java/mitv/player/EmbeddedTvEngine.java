@@ -32,16 +32,25 @@ final class EmbeddedTvEngine {
                 return session.report("已完成：加载模拟电视代码");
             case 1:
                 session.tvContext = getTvContext(session.classLoader, session.errors);
+                session.step++;
+                return session.report("已完成：TvContext.getInstance");
+            case 2:
                 session.sourceManager = invokeObject(session.tvContext, "getSourceManager", session.errors);
+                session.step++;
+                return session.report("已完成：getSourceManager");
+            case 3:
                 session.tvViewManager = invokeObject(session.tvContext, "getTvViewManager", session.errors);
+                session.step++;
+                return session.report("已完成：getTvViewManager");
+            case 4:
                 session.playerManager = invokeObject(session.tvContext, "getPlayerManager", session.errors);
                 session.step++;
-                return session.report("已完成：获取 TvContext 和 Manager");
-            case 2:
+                return session.report("已完成：getPlayerManager");
+            case 5:
                 session.tvPlayer = invokeObject(session.playerManager, "createTvPlayer", session.errors);
                 session.step++;
-                return session.report("已完成：创建 TvPlayer");
-            case 3:
+                return session.report("已完成：createTvPlayer");
+            case 6:
                 session.tvView = createTvSurfaceView(session.context, session.classLoader, session.errors);
                 if (session.tvView instanceof View) {
                     View view = (View) session.tvView;
@@ -54,7 +63,7 @@ final class EmbeddedTvEngine {
                 }
                 session.step++;
                 return session.report("已完成：创建 TVSurfaceViewParent");
-            case 4:
+            case 7:
                 if (session.tvViewManager != null && session.tvView instanceof View) {
                     session.registered = invokeViewObject(
                             session.tvViewManager,
@@ -76,8 +85,8 @@ final class EmbeddedTvEngine {
                     append(session.errors, "registerMainTvView:manager/view=null");
                 }
                 session.step++;
-                return session.report("已完成：注册电视画面");
-            case 5:
+                return session.report("已完成：registerMainTvView");
+            case 8:
                 if (session.sourceManager != null) {
                     session.switched = invokeInt(session.sourceManager, "setCurrentSource", session.sourceId, session.errors);
                 } else {
@@ -275,7 +284,7 @@ final class EmbeddedTvEngine {
     }
 
     static final class Session {
-        static final int STEP_COUNT = 6;
+        static final int STEP_COUNT = 9;
 
         final Context context;
         final FrameLayout container;
@@ -310,14 +319,20 @@ final class EmbeddedTvEngine {
                 case 0:
                     return "下一步：加载模拟电视代码";
                 case 1:
-                    return "下一步：获取 TvContext 和 Manager";
+                    return "下一步：TvContext.getInstance";
                 case 2:
-                    return "下一步：创建 TvPlayer";
+                    return "下一步：getSourceManager";
                 case 3:
-                    return "下一步：创建 TVSurfaceViewParent";
+                    return "下一步：getTvViewManager";
                 case 4:
-                    return "下一步：registerMainTvView";
+                    return "下一步：getPlayerManager";
                 case 5:
+                    return "下一步：createTvPlayer";
+                case 6:
+                    return "下一步：创建 TVSurfaceViewParent";
+                case 7:
+                    return "下一步：registerMainTvView";
+                case 8:
                     return "下一步：setCurrentSource(" + sourceId + ")";
                 default:
                     return "诊断已完成";

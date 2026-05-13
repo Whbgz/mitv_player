@@ -7,7 +7,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.KeyEvent;
-import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
@@ -17,7 +16,6 @@ public final class EmbeddedPlayerActivity extends Activity {
     static final String EXTRA_SOURCE_ID = "mitv.player.extra.SOURCE_ID";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private FrameLayout root;
     private TextView statusView;
     private EmbeddedTvEngine.Session session;
     private boolean runningStep;
@@ -35,7 +33,7 @@ public final class EmbeddedPlayerActivity extends Activity {
             sourceName = "HDMI" + sourceId;
         }
 
-        root = new FrameLayout(this);
+        FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
         root.setFocusable(true);
         root.setFocusableInTouchMode(true);
