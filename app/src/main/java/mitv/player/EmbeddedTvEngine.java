@@ -14,73 +14,99 @@ final class EmbeddedTvEngine {
     private static final String TV_CONTEXT = "mitv.tv.TvContext";
     private static final String TV_SURFACE_VIEW_PARENT = "com.xiaomi.mitv.tvplayer.widget.views.TVSurfaceViewParent";
 
-    private static Object activeTvView;
-    private static Object activeTvViewManager;
-
     private EmbeddedTvEngine() {
     }
 
-    static String start(Context context, FrameLayout container, String sourceName, int sourceId) {
-        StringBuilder errors = new StringBuilder();
-        ClassLoader classLoader = resolveClassLoader(context, errors);
-
-        Object tvContext = getTvContext(classLoader, errors);
-        Object sourceManager = invokeObject(tvContext, "getSourceManager", errors);
-        Object tvViewManager = invokeObject(tvContext, "getTvViewManager", errors);
-        Object playerManager = invokeObject(tvContext, "getPlayerManager", errors);
-        Object tvPlayer = invokeObject(playerManager, "createTvPlayer", errors);
-        Object tvView = createTvSurfaceView(context, classLoader, errors);
-
-        if (tvView instanceof View) {
-            View view = (View) tvView;
-            container.addView(view, 0, new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT
-            ));
-            invokeNoArg(tvView, "init", errors);
-            invokeBoolean(tvView, "enableBlackCover", false, errors);
-        }
-
-        boolean registered = false;
-        if (tvViewManager != null && tvView instanceof View) {
-            registered = invokeViewObject(tvViewManager, "registerMainTvView", (View) tvView, tvPlayer, errors);
-            if (!registered) {
-                registered = invokeViewObject(tvViewManager, "registerMainTvView", (View) tvView, null, errors);
-            }
-        }
-
-        boolean switched = false;
-        if (sourceManager != null) {
-            switched = invokeInt(sourceManager, "setCurrentSource", sourceId, errors);
-        }
-
-        activeTvView = tvView;
-        activeTvViewManager = tvViewManager;
-
-        if (registered && switched) {
-            return "已调用内置播放：" + sourceName + " / TvPlayer / setCurrentSource(" + sourceId + ")";
-        }
-        if (needsSecureSettingsGrant(errors)) {
-            return "缺少 WRITE_SECURE_SETTINGS 权限，请执行：adb shell pm grant mitv.player android.permission.WRITE_SECURE_SETTINGS，然后重启应用";
-        }
-        if (registered) {
-            return "已注册画面，但切源失败：" + compact(errors.toString());
-        }
-        if (switched) {
-            return "已切换信号源，但注册画面失败：" + compact(errors.toString());
-        }
-        return "内置播放失败：" + compact(errors.toString());
+    static Session createSession(Context context, FrameLayout container, String sourceName, int sourceId) {
+        return new Session(context, container, sourceName, sourceId);
     }
 
-    static void stop(Context context) {
-        if (activeTvViewManager != null && activeTvView instanceof View) {
-            invokeView(activeTvViewManager, "unregisterTvView", (View) activeTvView, null);
+    static String runNextStep(Session session) {
+        if (session == null || session.isComplete()) {
+            return "诊断已完成";
         }
-        if (activeTvView != null) {
-            invokeNoArg(activeTvView, "clear", null);
+        switch (session.step) {
+            case 0:
+                session.classLoader = resolveClassLoader(session.context, session.errors);
+                session.step++;
+                return session.report("已完成：加载模拟电视代码");
+            case 1:
+                session.tvContext = getTvContext(session.classLoader, session.errors);
+                session.sourceManager = invokeObject(session.tvContext, "getSourceManager", session.errors);
+                session.tvViewManager = invokeObject(session.tvContext, "getTvViewManager", session.errors);
+                session.playerManager = invokeObject(session.tvContext, "getPlayerManager", session.errors);
+                session.step++;
+                return session.report("已完成：获取 TvContext 和 Manager");
+            case 2:
+                session.tvPlayer = invokeObject(session.playerManager, "createTvPlayer", session.errors);
+                session.step++;
+                return session.report("已完成：创建 TvPlayer");
+            case 3:
+                session.tvView = createTvSurfaceView(session.context, session.classLoader, session.errors);
+                if (session.tvView instanceof View) {
+                    View view = (View) session.tvView;
+                    session.container.addView(view, 0, new FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT
+                    ));
+                    invokeNoArg(session.tvView, "init", session.errors);
+                    invokeBoolean(session.tvView, "enableBlackCover", false, session.errors);
+                }
+                session.step++;
+                return session.report("已完成：创建 TVSurfaceViewParent");
+            case 4:
+                if (session.tvViewManager != null && session.tvView instanceof View) {
+                    session.registered = invokeViewObject(
+                            session.tvViewManager,
+                            "registerMainTvView",
+                            (View) session.tvView,
+                            session.tvPlayer,
+                            session.errors
+                    );
+                    if (!session.registered) {
+                        session.registered = invokeViewObject(
+                                session.tvViewManager,
+                                "registerMainTvView",
+                                (View) session.tvView,
+                                null,
+                                session.errors
+                        );
+                    }
+                } else {
+                    append(session.errors, "registerMainTvView:manager/view=null");
+                }
+                session.step++;
+                return session.report("已完成：注册电视画面");
+            case 5:
+                if (session.sourceManager != null) {
+                    session.switched = invokeInt(session.sourceManager, "setCurrentSource", session.sourceId, session.errors);
+                } else {
+                    append(session.errors, "setCurrentSource:sourceManager=null");
+                }
+                session.step++;
+                if (session.registered && session.switched) {
+                    return "已调用内置播放：" + session.sourceName + " / registerMainTvView / setCurrentSource(" + session.sourceId + ")";
+                }
+                if (needsSecureSettingsGrant(session.errors)) {
+                    return "缺少 WRITE_SECURE_SETTINGS 权限，请执行：adb shell pm grant mitv.player android.permission.WRITE_SECURE_SETTINGS";
+                }
+                return session.report("诊断完成，但未全部成功");
+            default:
+                session.step = Session.STEP_COUNT;
+                return "诊断已完成";
         }
-        activeTvView = null;
-        activeTvViewManager = null;
+    }
+
+    static void stop(Session session) {
+        if (session == null) {
+            return;
+        }
+        if (session.tvViewManager != null && session.tvView instanceof View) {
+            invokeView(session.tvViewManager, "unregisterTvView", (View) session.tvView, null);
+        }
+        if (session.tvView != null) {
+            invokeNoArg(session.tvView, "clear", null);
+        }
     }
 
     private static ClassLoader resolveClassLoader(Context context, StringBuilder errors) {
@@ -234,13 +260,6 @@ final class EmbeddedTvEngine {
         return real.getClass().getSimpleName() + "(" + message + ")";
     }
 
-    private static String compact(String value) {
-        if (value == null || value.length() == 0) {
-            return "未返回错误信息";
-        }
-        return value.length() > 900 ? value.substring(0, 900) + "..." : value;
-    }
-
     private static boolean needsSecureSettingsGrant(StringBuilder errors) {
         return errors != null && errors.toString().contains("WRITE_SECURE_SETTINGS");
     }
@@ -253,5 +272,67 @@ final class EmbeddedTvEngine {
             errors.append("; ");
         }
         errors.append(message);
+    }
+
+    static final class Session {
+        static final int STEP_COUNT = 6;
+
+        final Context context;
+        final FrameLayout container;
+        final String sourceName;
+        final int sourceId;
+        final StringBuilder errors = new StringBuilder();
+
+        int step;
+        ClassLoader classLoader;
+        Object tvContext;
+        Object sourceManager;
+        Object tvViewManager;
+        Object playerManager;
+        Object tvPlayer;
+        Object tvView;
+        boolean registered;
+        boolean switched;
+
+        Session(Context context, FrameLayout container, String sourceName, int sourceId) {
+            this.context = context;
+            this.container = container;
+            this.sourceName = sourceName;
+            this.sourceId = sourceId;
+        }
+
+        boolean isComplete() {
+            return step >= STEP_COUNT;
+        }
+
+        String nextStepLabel() {
+            switch (step) {
+                case 0:
+                    return "下一步：加载模拟电视代码";
+                case 1:
+                    return "下一步：获取 TvContext 和 Manager";
+                case 2:
+                    return "下一步：创建 TvPlayer";
+                case 3:
+                    return "下一步：创建 TVSurfaceViewParent";
+                case 4:
+                    return "下一步：registerMainTvView";
+                case 5:
+                    return "下一步：setCurrentSource(" + sourceId + ")";
+                default:
+                    return "诊断已完成";
+            }
+        }
+
+        String report(String prefix) {
+            if (errors.length() == 0) {
+                return prefix + "\n当前没有 Java 错误";
+            }
+            String value = errors.toString();
+            if (value.length() > 900) {
+                value = value.substring(0, 900) + "...";
+            }
+            return prefix + "\n" + value;
+        }
     }
 }
