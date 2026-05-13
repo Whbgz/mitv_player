@@ -1,6 +1,7 @@
 package mitv.player;
 
 import android.content.Context;
+import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
 import android.media.tv.TvContentRating;
 import android.media.tv.TvContract;
@@ -76,21 +77,24 @@ final class EmbeddedTvEngine {
                         session.videoTrackCount = countTracks(tracks, TvTrackInfo.TYPE_VIDEO);
                         String selectedAudio = selectFirstTrack(session, tracks, TvTrackInfo.TYPE_AUDIO);
                         String selectedVideo = selectFirstTrack(session, tracks, TvTrackInfo.TYPE_VIDEO);
-                        if (session.tvView != null) {
-                            session.tvView.setStreamVolume(1.0f);
-                        }
+                        String audioRoute = primeAudioRoute(session);
                         session.notifyStatus(
                                 "TvView 回调：音频轨道 " + session.audioTrackCount
                                         + "，视频轨道 " + session.videoTrackCount
                                         + "\n已选择音频：" + selectedAudio
-                                        + "\n已选择视频：" + selectedVideo,
+                                        + "\n已选择视频：" + selectedVideo
+                                        + "\n音频路由：" + audioRoute,
                                 session.videoTrackCount > 0
                         );
                     }
 
                     @Override
                     public void onTrackSelected(String inputId, int type, String trackId) {
-                        session.notifyStatus("TvView 回调：选择轨道 type=" + type + " id=" + trackId, true);
+                        session.notifyStatus(
+                                "TvView 回调：选择轨道 type=" + type + " id=" + trackId
+                                        + "\n音频路由：" + primeAudioRoute(session),
+                                true
+                        );
                     }
 
                     @Override
@@ -120,7 +124,7 @@ final class EmbeddedTvEngine {
                 session.step++;
                 return session.report("已完成：创建 Android TvView");
             case 3:
-                requestAudioFocus(session);
+                String audioRoute = primeAudioRoute(session);
                 if (session.tvView != null && session.selectedInput != null) {
                     Uri uri = TvContract.buildChannelUriForPassthroughInput(session.selectedInput.getId());
                     session.tvView.setStreamVolume(1.0f);
@@ -132,12 +136,94 @@ final class EmbeddedTvEngine {
                 session.step++;
                 if (session.tuned) {
                     return "已调用系统 TvView 播放：" + inputTitle(session.context, session.selectedInput)
-                            + "\n已请求音频焦点，TvView 音量=100%\n等待回调";
+                            + "\n" + audioRoute
+                            + "\n等待回调";
                 }
                 return session.report("系统 TvView 播放失败");
             default:
                 session.step = Session.STEP_COUNT;
                 return "诊断已完成";
+        }
+    }
+
+    private static String primeAudioRoute(Session session) {
+        if (session.tvView != null) {
+            session.tvView.setStreamVolume(1.0f);
+        }
+        if (session.audioManager == null) {
+            session.audioManager = (AudioManager) session.context.getSystemService(Context.AUDIO_SERVICE);
+        }
+        if (session.audioManager == null) {
+            return "AudioManager=null";
+        }
+
+        StringBuilder builder = new StringBuilder();
+        try {
+            session.audioManager.setMode(AudioManager.MODE_NORMAL);
+            builder.append("mode=normal");
+        } catch (Throwable throwable) {
+            builder.append("mode=").append(throwable.getClass().getSimpleName());
+        }
+
+        try {
+            session.audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0);
+            session.audioManager.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_UNMUTE, 0);
+            builder.append("; unmute=ok");
+        } catch (Throwable throwable) {
+            builder.append("; unmute=").append(throwable.getClass().getSimpleName());
+        }
+
+        builder.append("; ").append(requestAudioFocus(session));
+        appendStreamState(builder, session.audioManager, AudioManager.STREAM_MUSIC, "music");
+        appendStreamState(builder, session.audioManager, AudioManager.STREAM_SYSTEM, "system");
+        appendOutputDevices(builder, session.audioManager);
+        return trimForStatus(builder.toString(), 360);
+    }
+
+    private static void appendStreamState(
+            StringBuilder builder,
+            AudioManager audioManager,
+            int streamType,
+            String label
+    ) {
+        try {
+            builder.append("; ")
+                    .append(label)
+                    .append("=")
+                    .append(audioManager.getStreamVolume(streamType))
+                    .append("/")
+                    .append(audioManager.getStreamMaxVolume(streamType))
+                    .append(audioManager.isStreamMute(streamType) ? "/muted" : "/unmuted");
+        } catch (Throwable throwable) {
+            builder.append("; ").append(label).append("=").append(throwable.getClass().getSimpleName());
+        }
+    }
+
+    private static void appendOutputDevices(StringBuilder builder, AudioManager audioManager) {
+        try {
+            AudioDeviceInfo[] devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
+            builder.append("; outputs=");
+            if (devices == null || devices.length == 0) {
+                builder.append("none");
+                return;
+            }
+            int count = Math.min(devices.length, 4);
+            for (int i = 0; i < count; i++) {
+                if (i > 0) {
+                    builder.append(",");
+                }
+                AudioDeviceInfo device = devices[i];
+                builder.append(device.getType());
+                CharSequence name = device.getProductName();
+                if (name != null && name.length() > 0) {
+                    builder.append(":").append(name);
+                }
+            }
+            if (devices.length > count) {
+                builder.append("...");
+            }
+        } catch (Throwable throwable) {
+            builder.append("; outputs=").append(throwable.getClass().getSimpleName());
         }
     }
 
@@ -150,11 +236,10 @@ final class EmbeddedTvEngine {
         }
     }
 
-    private static void requestAudioFocus(Session session) {
+    private static String requestAudioFocus(Session session) {
         session.audioManager = (AudioManager) session.context.getSystemService(Context.AUDIO_SERVICE);
         if (session.audioManager == null) {
-            append(session.errors, "AudioManager=null");
-            return;
+            return "focus=AudioManager-null";
         }
         try {
             int result = session.audioManager.requestAudioFocus(
@@ -162,9 +247,9 @@ final class EmbeddedTvEngine {
                     AudioManager.STREAM_MUSIC,
                     AudioManager.AUDIOFOCUS_GAIN
             );
-            append(session.errors, "requestAudioFocus=" + result);
+            return "focus=" + result;
         } catch (Throwable throwable) {
-            append(session.errors, "requestAudioFocus:" + throwable.getClass().getSimpleName());
+            return "focus=" + throwable.getClass().getSimpleName();
         }
     }
 
@@ -276,6 +361,13 @@ final class EmbeddedTvEngine {
             errors.append("; ");
         }
         errors.append(message);
+    }
+
+    private static String trimForStatus(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, maxLength) + "...";
     }
 
     static final class Session {
