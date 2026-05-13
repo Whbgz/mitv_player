@@ -4,12 +4,10 @@ import android.app.Activity;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.Gravity;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
-public final class EmbeddedPlayerActivity extends Activity implements SurfaceHolder.Callback {
+public final class EmbeddedPlayerActivity extends Activity {
     static final String EXTRA_TITLE = "mitv.player.extra.TITLE";
     static final String EXTRA_SOURCE_NAME = "mitv.player.extra.SOURCE_NAME";
     static final String EXTRA_SOURCE_ID = "mitv.player.extra.SOURCE_ID";
@@ -35,19 +33,12 @@ public final class EmbeddedPlayerActivity extends Activity implements SurfaceHol
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
 
-        SurfaceView surfaceView = new SurfaceView(this);
-        surfaceView.getHolder().addCallback(this);
-        root.addView(surfaceView, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-        ));
-
         statusView = new TextView(this);
-        statusView.setText(title + "：等待 Surface...");
+        statusView.setText(title + "：正在初始化...");
         statusView.setTextColor(Color.WHITE);
         statusView.setTextSize(20);
         statusView.setGravity(Gravity.CENTER);
-        statusView.setBackgroundColor(Color.argb(140, 0, 0, 0));
+        statusView.setBackgroundColor(Color.argb(150, 0, 0, 0));
         FrameLayout.LayoutParams statusParams = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -57,21 +48,9 @@ public final class EmbeddedPlayerActivity extends Activity implements SurfaceHol
         root.addView(statusView, statusParams);
 
         setContentView(root);
-    }
-
-    @Override
-    public void surfaceCreated(SurfaceHolder holder) {
-        String result = EmbeddedTvEngine.start(this, holder.getSurface(), sourceName, sourceId);
+        String result = EmbeddedTvEngine.start(this, root, sourceName, sourceId);
         statusView.setText(result);
-    }
-
-    @Override
-    public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-    }
-
-    @Override
-    public void surfaceDestroyed(SurfaceHolder holder) {
-        EmbeddedTvEngine.stop(this);
+        statusView.bringToFront();
     }
 
     @Override
