@@ -6,6 +6,7 @@ import android.view.View;
 import android.widget.FrameLayout;
 
 import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
 final class EmbeddedTvEngine {
@@ -25,12 +26,11 @@ final class EmbeddedTvEngine {
 
         Object tvContext = getTvContext(classLoader, errors);
         Object sourceManager = invokeObject(tvContext, "getSourceManager", errors);
-        if (sourceManager != null) {
-            invokeInt(sourceManager, "setCurrentSource", sourceId, errors);
-        }
-
         Object tvViewManager = invokeObject(tvContext, "getTvViewManager", errors);
+        Object playerManager = invokeObject(tvContext, "getPlayerManager", errors);
+        Object tvPlayer = invokeObject(playerManager, "createTvPlayer", errors);
         Object tvView = createTvSurfaceView(context, classLoader, errors);
+
         if (tvView instanceof View) {
             View view = (View) tvView;
             container.addView(view, 0, new FrameLayout.LayoutParams(
@@ -43,23 +43,28 @@ final class EmbeddedTvEngine {
 
         boolean registered = false;
         if (tvViewManager != null && tvView instanceof View) {
-            registered = invokeViewObject(tvViewManager, "registerMainTvView", (View) tvView, null, errors);
+            registered = invokeViewObject(tvViewManager, "registerMainTvView", (View) tvView, tvPlayer, errors);
+            if (!registered) {
+                registered = invokeViewObject(tvViewManager, "registerMainTvView", (View) tvView, null, errors);
+            }
         }
 
-        Object playerManager = invokeObject(tvContext, "getPlayerManager", errors);
-        Object tvPlayer = invokeObject(playerManager, "createTvPlayer", errors);
+        boolean switched = false;
+        if (sourceManager != null) {
+            switched = invokeInt(sourceManager, "setCurrentSource", sourceId, errors);
+        }
 
         activeTvView = tvView;
         activeTvViewManager = tvViewManager;
 
-        if (sourceManager != null && registered) {
-            return "已调用内置播放：" + sourceName + " / setCurrentSource(" + sourceId + ") / registerMainTvView";
+        if (registered && switched) {
+            return "已调用内置播放：" + sourceName + " / TvPlayer / setCurrentSource(" + sourceId + ")";
         }
-        if (sourceManager != null && tvView instanceof View) {
+        if (registered) {
+            return "已注册画面，但切源失败：" + compact(errors.toString());
+        }
+        if (switched) {
             return "已切换信号源，但注册画面失败：" + compact(errors.toString());
-        }
-        if (tvPlayer != null) {
-            return "已创建 TvPlayer，但未注册画面：" + compact(errors.toString());
         }
         return "内置播放失败：" + compact(errors.toString());
     }
@@ -87,7 +92,7 @@ final class EmbeddedTvEngine {
             append(errors, "未找到模拟电视包");
             return EmbeddedTvEngine.class.getClassLoader();
         } catch (Throwable throwable) {
-            append(errors, "加载模拟电视失败:" + throwable.getClass().getSimpleName());
+            append(errors, "加载模拟电视失败:" + describe(throwable));
             return EmbeddedTvEngine.class.getClassLoader();
         }
     }
@@ -99,7 +104,7 @@ final class EmbeddedTvEngine {
             method.setAccessible(true);
             return method.invoke(null);
         } catch (Throwable throwable) {
-            append(errors, "TvContext.getInstance:" + throwable.getClass().getSimpleName());
+            append(errors, "TvContext.getInstance:" + describe(throwable));
             return null;
         }
     }
@@ -111,7 +116,7 @@ final class EmbeddedTvEngine {
             constructor.setAccessible(true);
             return constructor.newInstance(context);
         } catch (Throwable throwable) {
-            append(errors, "TVSurfaceViewParent:" + throwable.getClass().getSimpleName());
+            append(errors, "TVSurfaceViewParent:" + describe(throwable));
             return null;
         }
     }
@@ -126,7 +131,7 @@ final class EmbeddedTvEngine {
             method.setAccessible(true);
             return method.invoke(target);
         } catch (Throwable throwable) {
-            append(errors, methodName + "():" + throwable.getClass().getSimpleName());
+            append(errors, methodName + "():" + describe(throwable));
             return null;
         }
     }
@@ -142,7 +147,7 @@ final class EmbeddedTvEngine {
             Object result = method.invoke(target, value);
             return !(result instanceof Boolean) || (Boolean) result;
         } catch (Throwable throwable) {
-            append(errors, methodName + "(int):" + throwable.getClass().getSimpleName());
+            append(errors, methodName + "(int):" + describe(throwable));
             return false;
         }
     }
@@ -158,7 +163,7 @@ final class EmbeddedTvEngine {
             method.invoke(target, value);
             return true;
         } catch (Throwable throwable) {
-            append(errors, methodName + "(boolean):" + throwable.getClass().getSimpleName());
+            append(errors, methodName + "(boolean):" + describe(throwable));
             return false;
         }
     }
@@ -174,7 +179,7 @@ final class EmbeddedTvEngine {
             Object result = method.invoke(target, view, value);
             return result instanceof Boolean && (Boolean) result;
         } catch (Throwable throwable) {
-            append(errors, methodName + "(View,Object):" + throwable.getClass().getSimpleName());
+            append(errors, methodName + "(View,Object):" + describe(throwable));
             return false;
         }
     }
@@ -190,7 +195,7 @@ final class EmbeddedTvEngine {
             Object result = method.invoke(target, view);
             return !(result instanceof Boolean) || (Boolean) result;
         } catch (Throwable throwable) {
-            append(errors, methodName + "(View):" + throwable.getClass().getSimpleName());
+            append(errors, methodName + "(View):" + describe(throwable));
             return false;
         }
     }
@@ -206,9 +211,24 @@ final class EmbeddedTvEngine {
             method.invoke(target);
             return true;
         } catch (Throwable throwable) {
-            append(errors, methodName + "():" + throwable.getClass().getSimpleName());
+            append(errors, methodName + "():" + describe(throwable));
             return false;
         }
+    }
+
+    private static String describe(Throwable throwable) {
+        Throwable real = throwable;
+        if (throwable instanceof InvocationTargetException) {
+            Throwable cause = ((InvocationTargetException) throwable).getCause();
+            if (cause != null) {
+                real = cause;
+            }
+        }
+        String message = real.getMessage();
+        if (message == null || message.length() == 0) {
+            return real.getClass().getSimpleName();
+        }
+        return real.getClass().getSimpleName() + "(" + message + ")";
     }
 
     private static String compact(String value) {
