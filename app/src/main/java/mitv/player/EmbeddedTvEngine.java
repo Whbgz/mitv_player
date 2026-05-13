@@ -1,19 +1,17 @@
 package mitv.player;
 
 import android.content.Context;
-import android.content.pm.PackageManager;
+import android.media.tv.TvContract;
+import android.media.tv.TvInputInfo;
+import android.media.tv.TvInputManager;
+import android.media.tv.TvView;
+import android.net.Uri;
 import android.view.View;
 import android.widget.FrameLayout;
 
-import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
+import java.util.List;
 
 final class EmbeddedTvEngine {
-    private static final String TVPLAYER_PACKAGE = "com.xiaomi.mitv.tvplayer";
-    private static final String TV_CONTEXT = "mitv.tv.TvContext";
-    private static final String TV_SURFACE_VIEW_PARENT = "com.xiaomi.mitv.tvplayer.widget.views.TVSurfaceViewParent";
-
     private EmbeddedTvEngine() {
     }
 
@@ -27,82 +25,39 @@ final class EmbeddedTvEngine {
         }
         switch (session.step) {
             case 0:
-                session.classLoader = resolveClassLoader(session.context, session.errors);
+                session.tvInputManager = (TvInputManager) session.context.getSystemService(Context.TV_INPUT_SERVICE);
                 session.step++;
-                return session.report("已完成：加载模拟电视代码");
+                return session.report("已完成：获取系统 TvInputManager");
             case 1:
-                session.tvContext = getTvContext(session.classLoader, session.errors);
+                if (session.tvInputManager != null) {
+                    session.inputs = session.tvInputManager.getTvInputList();
+                    session.selectedInput = chooseInput(session);
+                } else {
+                    append(session.errors, "TvInputManager=null");
+                }
                 session.step++;
-                return session.report("已完成：TvContext.getInstance");
+                return session.report("已完成：扫描系统 TV 输入\n" + describeInputs(session));
             case 2:
-                session.tvViewManager = invokeObject(session.tvContext, "getTvViewManager", session.errors);
+                session.tvView = new TvView(session.context);
+                session.container.addView(session.tvView, 0, new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                ));
                 session.step++;
-                return session.report("已完成：getTvViewManager");
+                return session.report("已完成：创建 Android TvView");
             case 3:
-                session.playerManager = invokeObject(session.tvContext, "getPlayerManager", session.errors);
-                session.step++;
-                return session.report("已完成：getPlayerManager");
-            case 4:
-                session.tvPlayer = invokeObject(session.playerManager, "createTvPlayer", session.errors);
-                session.step++;
-                return session.report("已完成：createTvPlayer");
-            case 5:
-                session.tvView = createTvSurfaceView(session.context, session.classLoader, session.errors);
-                if (session.tvView instanceof View) {
-                    View view = (View) session.tvView;
-                    session.container.addView(view, 0, new FrameLayout.LayoutParams(
-                            FrameLayout.LayoutParams.MATCH_PARENT,
-                            FrameLayout.LayoutParams.MATCH_PARENT
-                    ));
-                    invokeNoArg(session.tvView, "init", session.errors);
-                    invokeBoolean(session.tvView, "enableBlackCover", false, session.errors);
-                }
-                session.step++;
-                return session.report("已完成：创建 TVSurfaceViewParent");
-            case 6:
-                if (session.tvViewManager != null && session.tvView instanceof View) {
-                    session.registered = invokeViewObject(
-                            session.tvViewManager,
-                            "registerMainTvView",
-                            (View) session.tvView,
-                            session.tvPlayer,
-                            session.errors
-                    );
-                    if (!session.registered) {
-                        session.registered = invokeViewObject(
-                                session.tvViewManager,
-                                "registerMainTvView",
-                                (View) session.tvView,
-                                null,
-                                session.errors
-                        );
-                    }
+                if (session.tvView != null && session.selectedInput != null) {
+                    Uri uri = TvContract.buildChannelUriForPassthroughInput(session.selectedInput.getId());
+                    session.tvView.tune(session.selectedInput.getId(), uri);
+                    session.tuned = true;
                 } else {
-                    append(session.errors, "registerMainTvView:manager/view=null");
+                    append(session.errors, "tune:TvView/input=null");
                 }
                 session.step++;
-                if (session.registered) {
-                    return session.report("已注册电视画面。若 HDMI3 已是当前信号源，应该尝试出画面");
+                if (session.tuned) {
+                    return "已调用系统 TvView 播放：" + inputTitle(session.context, session.selectedInput);
                 }
-                return session.report("注册电视画面失败");
-            case 7:
-                session.sourceManager = invokeObject(session.tvContext, "getSourceManager", session.errors);
-                session.step++;
-                return session.report("危险步骤完成：getSourceManager");
-            case 8:
-                if (session.sourceManager != null) {
-                    session.switched = invokeInt(session.sourceManager, "setCurrentSource", session.sourceId, session.errors);
-                } else {
-                    append(session.errors, "setCurrentSource:sourceManager=null");
-                }
-                session.step++;
-                if (session.registered && session.switched) {
-                    return "已调用内置播放：" + session.sourceName + " / registerMainTvView / setCurrentSource(" + session.sourceId + ")";
-                }
-                if (needsSecureSettingsGrant(session.errors)) {
-                    return "缺少 WRITE_SECURE_SETTINGS 权限，请执行：adb shell pm grant mitv.player android.permission.WRITE_SECURE_SETTINGS";
-                }
-                return session.report("诊断完成，但未全部成功");
+                return session.report("系统 TvView 播放失败");
             default:
                 session.step = Session.STEP_COUNT;
                 return "诊断已完成";
@@ -110,170 +65,67 @@ final class EmbeddedTvEngine {
     }
 
     static void stop(Session session) {
-        if (session == null) {
-            return;
-        }
-        if (session.tvViewManager != null && session.tvView instanceof View) {
-            invokeView(session.tvViewManager, "unregisterTvView", (View) session.tvView, null);
-        }
-        if (session.tvView != null) {
-            invokeNoArg(session.tvView, "clear", null);
+        if (session != null && session.tvView != null) {
+            session.tvView.reset();
         }
     }
 
-    private static ClassLoader resolveClassLoader(Context context, StringBuilder errors) {
-        try {
-            Context tvPlayerContext = context.createPackageContext(
-                    TVPLAYER_PACKAGE,
-                    Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY
-            );
-            append(errors, "已加载模拟电视代码");
-            return tvPlayerContext.getClassLoader();
-        } catch (PackageManager.NameNotFoundException exception) {
-            append(errors, "未找到模拟电视包");
-            return EmbeddedTvEngine.class.getClassLoader();
-        } catch (Throwable throwable) {
-            append(errors, "加载模拟电视失败:" + describe(throwable));
-            return EmbeddedTvEngine.class.getClassLoader();
-        }
-    }
-
-    private static Object getTvContext(ClassLoader classLoader, StringBuilder errors) {
-        try {
-            Class<?> clazz = Class.forName(TV_CONTEXT, true, classLoader);
-            Method method = clazz.getMethod("getInstance");
-            method.setAccessible(true);
-            return method.invoke(null);
-        } catch (Throwable throwable) {
-            append(errors, "TvContext.getInstance:" + describe(throwable));
+    private static TvInputInfo chooseInput(Session session) {
+        if (session.inputs == null || session.inputs.isEmpty()) {
+            append(session.errors, "系统没有返回 TV 输入列表");
             return null;
         }
-    }
-
-    private static Object createTvSurfaceView(Context context, ClassLoader classLoader, StringBuilder errors) {
-        try {
-            Class<?> clazz = Class.forName(TV_SURFACE_VIEW_PARENT, true, classLoader);
-            Constructor<?> constructor = clazz.getConstructor(Context.class);
-            constructor.setAccessible(true);
-            return constructor.newInstance(context);
-        } catch (Throwable throwable) {
-            append(errors, "TVSurfaceViewParent:" + describe(throwable));
-            return null;
-        }
-    }
-
-    private static Object invokeObject(Object target, String methodName, StringBuilder errors) {
-        if (target == null) {
-            append(errors, methodName + ":target=null");
-            return null;
-        }
-        try {
-            Method method = target.getClass().getMethod(methodName);
-            method.setAccessible(true);
-            return method.invoke(target);
-        } catch (Throwable throwable) {
-            append(errors, methodName + "():" + describe(throwable));
-            return null;
-        }
-    }
-
-    private static boolean invokeInt(Object target, String methodName, int value, StringBuilder errors) {
-        if (target == null) {
-            append(errors, methodName + ":target=null");
-            return false;
-        }
-        try {
-            Method method = target.getClass().getMethod(methodName, int.class);
-            method.setAccessible(true);
-            Object result = method.invoke(target, value);
-            return !(result instanceof Boolean) || (Boolean) result;
-        } catch (Throwable throwable) {
-            append(errors, methodName + "(int):" + describe(throwable));
-            return false;
-        }
-    }
-
-    private static boolean invokeBoolean(Object target, String methodName, boolean value, StringBuilder errors) {
-        if (target == null) {
-            append(errors, methodName + ":target=null");
-            return false;
-        }
-        try {
-            Method method = target.getClass().getMethod(methodName, boolean.class);
-            method.setAccessible(true);
-            method.invoke(target, value);
-            return true;
-        } catch (Throwable throwable) {
-            append(errors, methodName + "(boolean):" + describe(throwable));
-            return false;
-        }
-    }
-
-    private static boolean invokeViewObject(Object target, String methodName, View view, Object value, StringBuilder errors) {
-        if (target == null) {
-            append(errors, methodName + ":target=null");
-            return false;
-        }
-        try {
-            Method method = target.getClass().getMethod(methodName, View.class, Object.class);
-            method.setAccessible(true);
-            Object result = method.invoke(target, view, value);
-            return result instanceof Boolean && (Boolean) result;
-        } catch (Throwable throwable) {
-            append(errors, methodName + "(View,Object):" + describe(throwable));
-            return false;
-        }
-    }
-
-    private static boolean invokeView(Object target, String methodName, View view, StringBuilder errors) {
-        if (target == null) {
-            append(errors, methodName + ":target=null");
-            return false;
-        }
-        try {
-            Method method = target.getClass().getMethod(methodName, View.class);
-            method.setAccessible(true);
-            Object result = method.invoke(target, view);
-            return !(result instanceof Boolean) || (Boolean) result;
-        } catch (Throwable throwable) {
-            append(errors, methodName + "(View):" + describe(throwable));
-            return false;
-        }
-    }
-
-    private static boolean invokeNoArg(Object target, String methodName, StringBuilder errors) {
-        if (target == null) {
-            append(errors, methodName + ":target=null");
-            return false;
-        }
-        try {
-            Method method = target.getClass().getMethod(methodName);
-            method.setAccessible(true);
-            method.invoke(target);
-            return true;
-        } catch (Throwable throwable) {
-            append(errors, methodName + "():" + describe(throwable));
-            return false;
-        }
-    }
-
-    private static String describe(Throwable throwable) {
-        Throwable real = throwable;
-        if (throwable instanceof InvocationTargetException) {
-            Throwable cause = ((InvocationTargetException) throwable).getCause();
-            if (cause != null) {
-                real = cause;
+        TvInputInfo firstHdmi = null;
+        String wantedNumber = String.valueOf(session.sourceId);
+        for (TvInputInfo input : session.inputs) {
+            if (input == null || input.getType() != TvInputInfo.TYPE_HDMI) {
+                continue;
+            }
+            if (firstHdmi == null) {
+                firstHdmi = input;
+            }
+            String text = inputTitle(session.context, input).toLowerCase();
+            if (text.contains(wantedNumber) || text.contains(session.sourceName.toLowerCase())) {
+                return input;
             }
         }
-        String message = real.getMessage();
-        if (message == null || message.length() == 0) {
-            return real.getClass().getSimpleName();
+        if (firstHdmi != null) {
+            append(session.errors, "未精确匹配 " + session.sourceName + "，先使用第一个 HDMI 输入");
+            return firstHdmi;
         }
-        return real.getClass().getSimpleName() + "(" + message + ")";
+        append(session.errors, "系统 TV 输入列表里没有 HDMI");
+        return session.inputs.get(0);
     }
 
-    private static boolean needsSecureSettingsGrant(StringBuilder errors) {
-        return errors != null && errors.toString().contains("WRITE_SECURE_SETTINGS");
+    private static String describeInputs(Session session) {
+        if (session.inputs == null || session.inputs.isEmpty()) {
+            return "未发现输入";
+        }
+        StringBuilder builder = new StringBuilder();
+        for (TvInputInfo input : session.inputs) {
+            if (builder.length() > 0) {
+                builder.append("\n");
+            }
+            builder.append(inputTitle(session.context, input))
+                    .append(" / type=")
+                    .append(input.getType());
+        }
+        if (session.selectedInput != null) {
+            builder.append("\n选中：").append(inputTitle(session.context, session.selectedInput));
+        }
+        return builder.toString();
+    }
+
+    private static String inputTitle(Context context, TvInputInfo input) {
+        if (input == null) {
+            return "null";
+        }
+        CharSequence label = input.loadLabel(context);
+        String value = label == null ? "" : label.toString();
+        if (value.length() == 0) {
+            value = input.getId();
+        }
+        return value;
     }
 
     private static void append(StringBuilder errors, String message) {
@@ -287,7 +139,7 @@ final class EmbeddedTvEngine {
     }
 
     static final class Session {
-        static final int STEP_COUNT = 9;
+        static final int STEP_COUNT = 4;
 
         final Context context;
         final FrameLayout container;
@@ -296,15 +148,11 @@ final class EmbeddedTvEngine {
         final StringBuilder errors = new StringBuilder();
 
         int step;
-        ClassLoader classLoader;
-        Object tvContext;
-        Object sourceManager;
-        Object tvViewManager;
-        Object playerManager;
-        Object tvPlayer;
-        Object tvView;
-        boolean registered;
-        boolean switched;
+        TvInputManager tvInputManager;
+        List<TvInputInfo> inputs;
+        TvInputInfo selectedInput;
+        TvView tvView;
+        boolean tuned;
 
         Session(Context context, FrameLayout container, String sourceName, int sourceId) {
             this.context = context;
@@ -320,23 +168,13 @@ final class EmbeddedTvEngine {
         String nextStepLabel() {
             switch (step) {
                 case 0:
-                    return "下一步：加载模拟电视代码";
+                    return "下一步：获取系统 TvInputManager";
                 case 1:
-                    return "下一步：TvContext.getInstance";
+                    return "下一步：扫描系统 TV 输入";
                 case 2:
-                    return "下一步：getTvViewManager";
+                    return "下一步：创建 Android TvView";
                 case 3:
-                    return "下一步：getPlayerManager";
-                case 4:
-                    return "下一步：createTvPlayer";
-                case 5:
-                    return "下一步：创建 TVSurfaceViewParent";
-                case 6:
-                    return "下一步：registerMainTvView";
-                case 7:
-                    return "危险步骤：getSourceManager";
-                case 8:
-                    return "危险步骤：setCurrentSource(" + sourceId + ")";
+                    return "下一步：tune 到系统 HDMI 输入";
                 default:
                     return "诊断已完成";
             }
